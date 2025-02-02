@@ -3,9 +3,19 @@ import regex as re
 # Byte Pair Encoding Tokenizer
 class BPE:
 
-    def __init__(self) -> None:
+    def __init__(self, GPT4_tokenizer = False) -> None:
         self.vocab = {}
         self.merges = {}
+        self.GPT4_Tokenizer = GPT4_tokenizer
+        self.special_tokens = []
+
+
+    def generate_text_batches(self, text) -> list:
+        if not self.GPT4_Tokenizer:
+            return [text]
+        else:
+            GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+            return re.findall(GPT4_SPLIT_PATTERN, text)
 
     def get_stats(self, ids):
         counts = {}
@@ -17,7 +27,7 @@ class BPE:
         newids = []
         i = 0
         while i < len(ids):
-            if i < len(ids) - 1 and ids[i] == pair [0] and ids[i+1] == pair[1]:
+            if i < len(ids) - 1 and ids[i] == pair[0] and ids[i+1] == pair[1]:
                 newids.append(idx)
                 i += 2
             else:
@@ -26,17 +36,30 @@ class BPE:
         return newids 
 
     def train(self, text, vocab_size, verbose=False):
-        ids = self.encode(text)
+
+        text_batches = self.generate_text_batches(text)
+        
+        id_batch = [self.encode(x) for x in text_batches]
 
         # Generate merges
         num_merges = vocab_size - 256
         for i in range(num_merges):
-            stats = self.get_stats(ids)
-            pair = max(stats, key=stats.get)
+            
+            runing_stats = {}
+            for ids in id_batch:
+                stats = self.get_stats(ids)
+                for key, val in stats.items():
+                    if key in runing_stats:
+                        runing_stats[key] += val
+                    else:
+                        runing_stats[key] = val
+
+            pair = max(runing_stats, key=runing_stats.get)
             idx = 256 + i
             if verbose:
                 print(f"merging {pair} into a new token {idx}")
-            ids = self.merge(ids, pair, idx) 
+
+            id_batch = [self.merge(ids, pair, idx) for ids in id_batch] 
             self.merges[pair] = idx
         
         # Create vocab from merges: IE: Convert each id to a corresponding token in utf-8
@@ -45,7 +68,7 @@ class BPE:
             self.vocab[idx] = self.vocab[p0] + self.vocab[p1]
     
     def encode(self, text):
-        
+
         tokens = list(text.encode("utf-8"))
         while len(tokens) >= 2:
             stats = self.get_stats(tokens)
@@ -84,7 +107,7 @@ if __name__ == "__main__":
     There are paired nerve cords.[18]
     Other characteristics that commonly appear in textbooks have significant exceptions:"""
 
-    bpe = BPE()
+    bpe = BPE(True)
     bpe.train(text, 500)
 
     # Encode
